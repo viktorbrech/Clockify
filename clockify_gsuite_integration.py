@@ -35,28 +35,6 @@ meeting_tag = "6172ff40d19f7568cf238204"
 email_tag = "6172fd18d19f7568cf2207ba"
 
 ######
-# data loading
-######
-
-meetings = pd.read_csv(sheet_base_url + "customer_meetings",
-                       usecols=["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
-                       dtype={"start_timestamp": "int64", "end_timestamp": "int64"})
-meetings["project"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
-meetings["tag"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
-meetings["event_summary"] = meetings.apply(lambda x: sanitize(x["event_summary"]).lower(), axis=1)
-meetings = meetings[["start_timestamp", "end_timestamp", "event_summary","project", "tag"]].sort_values(by=['start_timestamp'])
-
-
-email_sent = pd.read_csv(sheet_base_url + "email_sent",
-                         usecols=["send_timestamp", "subject", "recipient_domains"],
-                         dtype={"send_timestamp": "int64"})
-email_sent["project"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
-email_sent["tag"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
-email_sent["subject"] = email_sent.apply(lambda x: sanitize(x["subject"]).lower(), axis=1)
-email_sent = email_sent[["send_timestamp", "subject", "project", "tag"]].sort_values(by=['send_timestamp'])
-
-
-######
 # Utility functions
 ######
 
@@ -171,6 +149,52 @@ def effective_email_times(send_timestamp):
         return lower_bound, upper_bound
 
 ######
+# data loading
+######
+
+meetings = pd.read_csv(sheet_base_url + "customer_meetings",
+                       usecols=["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
+                       dtype={"start_timestamp": "int64", "end_timestamp": "int64"})
+print(meetings)
+meetings["project"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
+meetings["tag"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
+meetings["event_summary"] = meetings.apply(lambda x: sanitize(x["event_summary"]).lower(), axis=1)
+meetings = meetings[["start_timestamp", "end_timestamp", "event_summary","project", "tag"]].sort_values(by=['start_timestamp'])
+
+
+email_sent = pd.read_csv(sheet_base_url + "email_sent",
+                         usecols=["send_timestamp", "subject", "recipient_domains"],
+                         dtype={"send_timestamp": "int64"})
+email_sent["project"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
+email_sent["tag"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
+email_sent["subject"] = email_sent.apply(lambda x: sanitize(x["subject"]).lower(), axis=1)
+email_sent = email_sent[["send_timestamp", "subject", "project", "tag"]].sort_values(by=['send_timestamp'])
+
+######
+# Process Input Files
+######
+
+customer_domains = pd.read_csv("input_files/customer_domains.csv",
+                               usecols=["domain", "customer_alias"],
+                               dtype={"domain": "string", "customer_alias": "string"},
+                               index_col = "domain")
+
+tag_alias = pd.read_csv("input_files/tag_alias.csv",
+                        usecols=["tag_alias", "tag_id"],
+                        dtype={"tag_alias": "string", "tag_id": "string"},
+                        index_col = "tag_alias")
+
+customer_project_tag = pd.read_csv("input_files/customer_project_tag.csv",
+                                   usecols=["customer_alias", "hub_id", "tag_alias", "project_id"],
+                                   dtype={"customer_alias": "string", "hub_id": "int64", "tag_alias": "string", "project_id": "string"},
+                                   index_col = "customer_alias")
+
+customer_data = pd.merge(customer_domains, customer_project_tag, on="customer_alias", how="left")
+customer_data = pd.merge(customer_data, tag_alias, on="tag_alias", how="left")
+
+print(customer_data.sample(3))
+
+######
 # external interface
 ######
 
@@ -200,6 +224,8 @@ def fill_general_time(from_iso, until_iso, total_hours_max = 8):
 
 def update_input_files():
     # TODO provide csv input files and interact with them
+    # read and enrich input_files/customer_project_tag.csv (project_id)
+    # write domain_project_tag.csv
     pass
 
 ######

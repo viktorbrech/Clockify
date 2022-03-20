@@ -1,0 +1,4 @@
+The "input_files" directory is to contain three csv files:
+* tag_alias.csv, formatted as in the sample repository
+* customer_domains.csv, including columns "domain" and "customer_alias", where domain refers to the email sending domain of a customer (e.g. "hubspot.com"), and "customer_alias" being a freely-chosen label to uniquely identify a customer (e.g. "hubspot)
+* customer_project_tag.csv, including columns "customer_alias", "hub_id", "tag_alias", "project_id". Customer alias is the same as in "customer_domains.csv", "hub_id" is the portal ID, and "tag_alias" is the same as in "tag_alias.csv". The "project_id" column (containing the internal Clockify project ID corresponding to the customer) needs not be filled manually, as this can be done via the "enrich_inputs.py" script.

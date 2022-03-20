@@ -123,3 +123,9 @@ venv.bak/
 .mypy_cache/
 .dmypy.json
 dmypy.json
+
+# custom
+
+input_files/customer_domains.csv
+input_files/customer_project_tag.csv
+*.ipynb
