@@ -3,6 +3,8 @@
 ## Files
 * "Code.gs" is a Google Apps Script (Javascript) file, to be deployed inside a Google Sheet. It should be put on a time-interval trigger to read out sent email and calendar events into the sheet.
 * "clockify_gsuite_integration.py" is a Python script that can be run locally. It reads out the information from the "Code.gs" sheet via http, and provides an interface to log sent email, meetings and filler "general time" to Clockify via the Clockify API.
+* the CSV files in the "input_files" subdirectory provide the customer data used for logging activities to Clockify. See "input_files/instructions.md" for details.
+* "enrich_inputs.py" is a simple script that adds Clockify project IDs to the "input_files/customer_project_tag.csv" file
 
 ## Dependencies
 * "Code.gs" requires the Calendar API as a service, cf. https://developers.google.com/apps-script/guides/services/advanced
