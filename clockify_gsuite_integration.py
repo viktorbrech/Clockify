@@ -268,7 +268,6 @@ def fill_general_time(from_iso, until_iso, total_hours_max = 8):
 ######
 
 if __name__ == "__main__":
-    pass
     # tag_activities()
     log_meetings()
     log_email()

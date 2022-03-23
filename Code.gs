@@ -19,9 +19,10 @@ function refreshSheet_() {
 }
 
 // via https://www.weirdgeek.com/2019/10/regular-expression-in-google-apps-script/ and https://stackoverflow.com/questions/42407785/regex-extract-email-from-strings
+// cf. https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/String/match
 function getRecipientEmails(string) {
     var regExp = new RegExp("([a-zA-Z0-9+._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)","gi"); 
-    var results = regExp.exec(string);
+    var results = string.match(regExp);
     return results;
     }
 
@@ -37,7 +38,7 @@ function getRecentSentEmail() {
     for (var j = messages.length - 1; j >= 0 ; j--) {
       if (messages[j].getFrom() == "Viktor Brech <vbrech@hubspot.com>") {
         let message_date = messages[j].getDate();
-        if ((Date.now() - message_date)/(1000*60*60) < 48) {
+        if ((Date.now() - message_date)/(1000*60*60) < 96) {
           let message_subject = messages[j].getSubject()
           if (message_subject && !message_subject.includes("out of office") && !message_subject.includes("slow to respond")) {
             let message_recipients = messages[j].getTo();
@@ -48,12 +49,7 @@ function getRecentSentEmail() {
             let recipients = getRecipientEmails(message_recipients);
             let recipient_domains = []
             for (var k = 0; k < recipients.length; k++) {
-              let processed_recipient = recipients[k]
-              //Logger.log(processed_recipient)
-              if (processed_recipient.includes("<")) {
-                processed_recipient = processed_recipient.split("<")[1].replace(">", "");
-              }
-              recipient_domain = processed_recipient.split("@")[1];
+              recipient_domain = recipients[k].split("@")[1];
               if (!recipient_domains.includes(recipient_domain) && recipient_domain != "hubspot.com" && recipient_domain != "gmail.com" && !recipient_domain.includes("google.com")) {
                 recipient_domains.push(recipient_domain);
               }
@@ -78,7 +74,7 @@ function getRecentMeetings() {
   sheet.appendRow(["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"]);
   let calendarId = 'primary';
   let now = new Date();
-  let now_minus_one_day = new Date(now.getTime() - (24 * 60 * 60 * 1000));
+  let now_minus_one_day = new Date(now.getTime() - (96 * 60 * 60 * 1000));
   let events = Calendar.Events.list(calendarId, {
     timeMin: now_minus_one_day.toISOString(),
     timeMax: now.toISOString(),
