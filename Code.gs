@@ -4,7 +4,6 @@
  * Access to Calendar API needs to be added as a service.
  */
 
-
 function onOpen() {
   var spreadsheet = SpreadsheetApp.getActive();
   var menuItems = [
@@ -18,6 +17,13 @@ function refreshSheet_() {
   getRecentSentEmail();
   getRecentMeetings();
 }
+
+// via https://www.weirdgeek.com/2019/10/regular-expression-in-google-apps-script/ and https://stackoverflow.com/questions/42407785/regex-extract-email-from-strings
+function getRecipientEmails(string) {
+    var regExp = new RegExp("([a-zA-Z0-9+._-]+@[a-zA-Z0-9._-]+\.[a-zA-Z0-9_-]+)","gi"); 
+    var results = regExp.exec(string);
+    return results;
+    }
 
 // https://developers.google.com/apps-script/reference/gmail
 function getRecentSentEmail() {
@@ -33,16 +39,17 @@ function getRecentSentEmail() {
         let message_date = messages[j].getDate();
         if ((Date.now() - message_date)/(1000*60*60) < 48) {
           let message_subject = messages[j].getSubject()
-          if (!message_subject.includes("out of office") && !message_subject.includes("slow to respond")) {
+          if (message_subject && !message_subject.includes("out of office") && !message_subject.includes("slow to respond")) {
             let message_recipients = messages[j].getTo();
             let message_cc = messages[j].getCc();
             if (message_cc.length > 0) {
               message_recipients = message_recipients + ", " + message_cc
             }
-            let recipients = message_recipients.split(", ");
+            let recipients = getRecipientEmails(message_recipients);
             let recipient_domains = []
             for (var k = 0; k < recipients.length; k++) {
               let processed_recipient = recipients[k]
+              //Logger.log(processed_recipient)
               if (processed_recipient.includes("<")) {
                 processed_recipient = processed_recipient.split("<")[1].replace(">", "");
               }
