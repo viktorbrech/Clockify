@@ -29,17 +29,17 @@ max_meeting_start_delay = 0.33 # fraction
 
 max_email_minutes = 15 # minutes
 min_email_minutes = 5 # minutes
-max_email_overlap = 3 # minutes
+max_email_overlap = 3 # minutes, should be smaller than min_email_minutes
 
 common_tags = {
-    meeting: "6172fd18d19f7568cf220734",
-    email: "6172fd18d19f7568cf2207ba",
-    investigate: "6172fd18d19f7568cf2207de",
-    post_call: "6172fd18d19f7568cf220758",
-    pre_call: "6172fd18d19f7568cf2207ef",
-    day_prep: "6172fd18d19f7568cf220817",
-    weekly_catchup: "6172fd1dd19f7568cf220c38",
-    lunch: "6172fd1ad19f7568cf2209cd"
+    "meeting": "6172fd18d19f7568cf220734",
+    "email": "6172fd18d19f7568cf2207ba",
+    "investigate": "6172fd18d19f7568cf2207de",
+    "post_call": "6172fd18d19f7568cf220758",
+    "pre_call": "6172fd18d19f7568cf2207ef",
+    "day_prep": "6172fd18d19f7568cf220817",
+    "weekly_catchup": "6172fd1dd19f7568cf220c38",
+    "lunch": "6172fd1ad19f7568cf2209cd"
 }
 
 
@@ -189,9 +189,8 @@ customer_project_tag = pd.read_csv("input_files/customer_project_tag.csv",
                                    index_col = "customer_alias")
 
 customer_data = pd.merge(customer_domains, customer_project_tag, on="customer_alias", how="left")
-customer_data = pd.merge(customer_data, tag_alias, on="tag_alias", how="left").set_index("domain")
-
-print(customer_data.sample(15))
+customer_data = pd.merge(customer_data, tag_alias, on="tag_alias", how="left").set_index("domain").drop(columns=["tag_alias"])
+#customer_data.to_csv("combined_customer_data.csv")
 
 ######
 # data loading
