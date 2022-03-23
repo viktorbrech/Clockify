@@ -31,8 +31,19 @@ max_email_minutes = 15 # minutes
 min_email_minutes = 5 # minutes
 max_email_overlap = 3 # minutes
 
-meeting_tag = "6172ff40d19f7568cf238204"
-email_tag = "6172fd18d19f7568cf2207ba"
+common_tags = {
+    meeting: "6172fd18d19f7568cf220734",
+    email: "6172fd18d19f7568cf2207ba",
+    investigate: "6172fd18d19f7568cf2207de",
+    post_call: "6172fd18d19f7568cf220758",
+    pre_call: "6172fd18d19f7568cf2207ef",
+    day_prep: "6172fd18d19f7568cf220817",
+    weekly_catchup: "6172fd1dd19f7568cf220c38",
+    lunch: "6172fd1ad19f7568cf2209cd"
+}
+
+
+
 
 ######
 # Utility functions
@@ -43,7 +54,7 @@ def isostr_to_ms(iso_str):
         return int(datetime.now().timestamp() * 1000)
     else:
         assert iso_str[-1] == "Z"
-        return int(1000 * datetime.fromisoformat(iso_str[:-1]).timestamp())
+        return int(1000 * datetime.fromisoformat(iso_str[:-1] + "+00:00").timestamp())
 
 def get_intervals(minus_x_hours = 48):
     lower_bound = int((datetime.now().timestamp() - minus_x_hours * 60 * 60 ) * 1000)
@@ -65,24 +76,34 @@ def get_intervals(minus_x_hours = 48):
                 break
     return intervals
 
-def map_domain(domain):
-    # TODO implement map_domain based off a configuration file
-    return "6172fd18d19f7568cf22074e", "6172fd2ad19f7568cf22171c"
-    return None, None
-
 def tag_activity(activity):
     # TODO implement tag_activity based off a configuration file
     return "6232f6ef9b58b44ec394d10e"
 
+def map_domain(domain):
+    try:
+        row = customer_data.loc[domain]
+        return row.project_id, row.tag_id, row.customer_alias
+    except KeyError:
+        print(domain + " not found in customer_data")
+        return None, None, None
+
 def map_domain_csv(domain_csv):
     domains = domain_csv.split(",")
     for domain in domains:
-        project, tag = map_domain(domain)
+        project, tag, customer_alias = map_domain(domain)
         if project and tag:
-            return project, tag
+            return project, tag, customer_alias
+    return None, None, None
 
 def sanitize(description):
     description = re.sub(r"[^a-zA-Z0-9]"," ",description)
+    if description == "":
+        return ""
+    while "  " in description:
+        description = description.replace("  "," ")
+    if description[-1] == " ":
+        description = description[:-1]
     return description.replace("  ", " ")
 
 def log_activity(from_timestamp, to_timestamp, description, project_str, tag_list, billable):
@@ -148,27 +169,6 @@ def effective_email_times(send_timestamp):
     else:
         return lower_bound, upper_bound
 
-######
-# data loading
-######
-
-meetings = pd.read_csv(sheet_base_url + "customer_meetings",
-                       usecols=["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
-                       dtype={"start_timestamp": "int64", "end_timestamp": "int64"})
-print(meetings)
-meetings["project"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
-meetings["tag"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
-meetings["event_summary"] = meetings.apply(lambda x: sanitize(x["event_summary"]).lower(), axis=1)
-meetings = meetings[["start_timestamp", "end_timestamp", "event_summary","project", "tag"]].sort_values(by=['start_timestamp'])
-
-
-email_sent = pd.read_csv(sheet_base_url + "email_sent",
-                         usecols=["send_timestamp", "subject", "recipient_domains"],
-                         dtype={"send_timestamp": "int64"})
-email_sent["project"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
-email_sent["tag"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
-email_sent["subject"] = email_sent.apply(lambda x: sanitize(x["subject"]).lower(), axis=1)
-email_sent = email_sent[["send_timestamp", "subject", "project", "tag"]].sort_values(by=['send_timestamp'])
 
 ######
 # Process Input Files
@@ -176,8 +176,7 @@ email_sent = email_sent[["send_timestamp", "subject", "project", "tag"]].sort_va
 
 customer_domains = pd.read_csv("input_files/customer_domains.csv",
                                usecols=["domain", "customer_alias"],
-                               dtype={"domain": "string", "customer_alias": "string"},
-                               index_col = "domain")
+                               dtype={"domain": "string", "customer_alias": "string"})
 
 tag_alias = pd.read_csv("input_files/tag_alias.csv",
                         usecols=["tag_alias", "tag_id"],
@@ -190,9 +189,36 @@ customer_project_tag = pd.read_csv("input_files/customer_project_tag.csv",
                                    index_col = "customer_alias")
 
 customer_data = pd.merge(customer_domains, customer_project_tag, on="customer_alias", how="left")
-customer_data = pd.merge(customer_data, tag_alias, on="tag_alias", how="left")
+customer_data = pd.merge(customer_data, tag_alias, on="tag_alias", how="left").set_index("domain")
 
-print(customer_data.sample(3))
+print(customer_data.sample(15))
+
+######
+# data loading
+######
+
+meetings = pd.read_csv(sheet_base_url + "customer_meetings",
+                       usecols=["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
+                       dtype={"start_timestamp": "int64", "end_timestamp": "int64"})
+#print(meetings)
+meetings["project"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
+meetings["tag"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
+meetings["customer_alias"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[2], axis=1)
+meetings["event_summary"] = meetings.apply(lambda x: sanitize(x["event_summary"]).lower(), axis=1)
+meetings = meetings[["start_timestamp", "end_timestamp", "event_summary","project", "tag", "customer_alias"]].sort_values(by=['start_timestamp'])
+
+
+email_sent = pd.read_csv(sheet_base_url + "email_sent",
+                         usecols=["send_timestamp", "subject", "recipient_domains"],
+                         dtype={"send_timestamp": "int64"})
+email_sent["project"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
+email_sent["tag"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
+email_sent["customer_alias"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[2], axis=1)
+email_sent["subject"] = email_sent.apply(lambda x: sanitize(x["subject"]).lower(), axis=1)
+email_sent = email_sent[["send_timestamp", "subject", "project", "tag", "customer_alias"]].sort_values(by=['send_timestamp'])
+
+logged_intervals = get_intervals(120)
+
 
 ######
 # external interface
@@ -200,32 +226,42 @@ print(customer_data.sample(3))
 
 def tag_activities():
     # TODO tag existing activities based on input files (cf. update_input_files function)
+    # TODO find a way to log internal meetings, too
     pass
 
-def log_meetings():
-    for index, row in meetings.iterrows():
+def log_meetings(silent=False):
+    # TODO in GAS, exclude meetings everybody but yourself have declined (optional?)
+    for index, row in meetings[~meetings.project.isna()].iterrows():
         from_timestamp, to_timestamp = effective_meeting_times(row['start_timestamp'], row['end_timestamp'])
         if from_timestamp and to_timestamp and row['project'] and row['tag']:
-            r = log_activity(from_timestamp, to_timestamp, "MEETING " + row['event_summary'], row['project'], [row['tag'], meeting_tag], True)
+            r = log_activity(from_timestamp, to_timestamp, "MEETING " + row['event_summary'], row['project'], [row['tag'], common_tags["meeting"]], True)
             if r:
+                if not silent:
+                    print("Logged meeting (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
                 logged_intervals.append([from_timestamp, to_timestamp])
+                # TODO log adjacent pre_call and post_call activities
+            else:
+                print("FAILED to log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
+        else:
+            print("Cannot log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
 
-def log_email():
-    for index, row in email_sent.iterrows():
+def log_email(silent=False):
+    for index, row in email_sent[~email_sent.project.isna()].iterrows():
         from_timestamp, to_timestamp = effective_email_times(row['send_timestamp'])
         if from_timestamp and to_timestamp and row['project'] and row['tag']:
-            r = log_activity(from_timestamp, to_timestamp, "EMAIL " + row['subject'], row['project'], [row['tag'], email_tag], True)
+            print("tried")
+            r = log_activity(from_timestamp, to_timestamp, "EMAIL " + row['subject'], row['project'], [row['tag'], common_tags["email"]], True)
             if r:
+                if not silent:
+                    print("Logged email (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['subject'] + "\" to " + row['customer_alias'].upper() )
                 logged_intervals.append([from_timestamp, to_timestamp])
+            else:
+                print("FAILED to log email \"" + row['subject'] + "\" to " + row['customer_alias'].upper() )
+        else:
+            print("Cannot log email \"" + row['subject'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
 
 def fill_general_time(from_iso, until_iso, total_hours_max = 8):
     # TODO white noise function
-    pass
-
-def update_input_files():
-    # TODO provide csv input files and interact with them
-    # read and enrich input_files/customer_project_tag.csv (project_id)
-    # write domain_project_tag.csv
     pass
 
 ######
@@ -233,9 +269,9 @@ def update_input_files():
 ######
 
 if __name__ == "__main__":
-    get_intervals(96)
+    pass
     # tag_activities()
-    # log_meetings()
-    # log_email()
+    log_meetings()
+    log_email()
     # fill_general_time (whatever params)
-    print("OK")
+    print("END")
