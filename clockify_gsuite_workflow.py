@@ -8,12 +8,16 @@ import pandas as pd
 import re
 from dotenv import dotenv_values
 
+from hubspot import HubSpot
+
 ######
 # Configuration
 ######
 
 env_config = dotenv_values(".env")
 api_key = env_config["CLOCKIFYAPI"]
+hs_token = env_config["HUBSPOTTOKEN"]
+
 sheet_id = env_config["SHEETID"]
 
 headers = {'x-api-key': api_key}
@@ -82,8 +86,8 @@ def tag_activity(activity):
 
 def map_domain(domain):
     try:
-        row = customer_data.loc[domain]
-        return row.project_id, row.tag_id, row.customer_alias
+        row = domain_dict[domain]
+        return row["project_id"], row["tag_id"], row["customer_alias"]
     except KeyError:
         print(domain + " not found in customer_data")
         return None, None, None
@@ -126,6 +130,8 @@ def log_activity(from_timestamp, to_timestamp, description, project_str, tag_lis
         return False
 
 def effective_meeting_times(from_timestamp, to_timestamp):
+    from_timestamp = int(from_timestamp)
+    to_timestamp = int(to_timestamp)
     skip = False
     original_length = to_timestamp - from_timestamp
     latest_start_date = from_timestamp + original_length * max_meeting_start_delay
@@ -146,6 +152,7 @@ def effective_meeting_times(from_timestamp, to_timestamp):
         return from_timestamp, to_timestamp
 
 def effective_email_times(send_timestamp):
+    send_timestamp = int(send_timestamp)
     skip = False
     upper_bound = send_timestamp
     for interval in logged_intervals:
@@ -171,52 +178,55 @@ def effective_email_times(send_timestamp):
 
 
 ######
-# Process Input Files
+# Read customer data from HubDB
 ######
 
-customer_domains = pd.read_csv("input_files/customer_domains.csv",
-                               usecols=["domain", "customer_alias"],
-                               dtype={"domain": "string", "customer_alias": "string"})
+api_client = HubSpot()
+api_client.access_token = hs_token
 
-tag_alias = pd.read_csv("input_files/tag_alias.csv",
-                        usecols=["tag_alias", "tag_id"],
-                        dtype={"tag_alias": "string", "tag_id": "string"},
-                        index_col = "tag_alias")
+rows = api_client.cms.hubdb.rows_api.get_table_rows(table_id_or_name='hsps_clockify_gsuite', sort=['result'], limit=50)
 
-customer_project_tag = pd.read_csv("input_files/customer_project_tag.csv",
-                                   usecols=["customer_alias", "hub_id", "tag_alias", "project_id"],
-                                   dtype={"customer_alias": "string", "hub_id": "int64", "tag_alias": "string", "project_id": "string"},
-                                   index_col = "customer_alias")
+domain_dict = {}
+customer_dict = {}
 
-customer_data = pd.merge(customer_domains, customer_project_tag, on="customer_alias", how="left")
-customer_data = pd.merge(customer_data, tag_alias, on="tag_alias", how="left").set_index("domain").drop(columns=["tag_alias"])
-#customer_data.to_csv("combined_customer_data.csv")
+for row in rows.results:
+    row_dict = row.values
+    domain_dict[row_dict["domain"]] = row_dict.copy()
+    del row_dict["domain"]
+    customer_dict[row_dict["customer_alias"]] = row_dict
+
 
 ######
 # data loading
 ######
 
-meetings = pd.read_csv(sheet_base_url + "customer_meetings",
-                       usecols=["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
-                       dtype={"start_timestamp": "int64", "end_timestamp": "int64"})
-#print(meetings)
-meetings["project"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
-meetings["tag"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
-meetings["customer_alias"] = meetings.apply(lambda x: map_domain_csv(x["recipient_domains"])[2], axis=1)
-meetings["event_summary"] = meetings.apply(lambda x: sanitize(x["event_summary"]).lower().strip(), axis=1)
-meetings = meetings[["start_timestamp", "end_timestamp", "event_summary","project", "tag", "customer_alias"]].sort_values(by=['start_timestamp'])
-
-
-email_sent = pd.read_csv(sheet_base_url + "email_sent",
-                         usecols=["send_timestamp", "subject", "recipient_domains"],
-                         dtype={"send_timestamp": "int64"})
-email_sent["project"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[0], axis=1)
-email_sent["tag"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[1], axis=1)
-email_sent["customer_alias"] = email_sent.apply(lambda x: map_domain_csv(x["recipient_domains"])[2], axis=1)
-email_sent["subject"] = email_sent.apply(lambda x: sanitize(x["subject"]).lower().strip(), axis=1)
-email_sent = email_sent[["send_timestamp", "subject", "project", "tag", "customer_alias"]].sort_values(by=['send_timestamp'])
-
 logged_intervals = get_intervals(120)
+
+engagement_schemata = {
+    "customer_meetings": ["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
+    "email_sent": ["send_timestamp", "subject", "recipient_domains"]
+}
+
+engagements = {}
+
+for sheet in engagement_schemata:
+    response = requests.get(sheet_base_url + sheet)
+    rows = response.content.decode('UTF-8').replace("\"", "").split("\n")[1:]
+    engagements[sheet] = []
+    for row in rows:
+        row = row.split(",")
+        row_dict = {}
+        for i in range(len(engagement_schemata[sheet])):
+            row_dict[engagement_schemata[sheet][i]] = row[i]
+        engagements[sheet].append(row_dict)
+
+for meeting in engagements["customer_meetings"]:
+    meeting["project"], meeting["tag"], meeting["customer_alias"] = map_domain_csv(meeting["recipient_domains"])
+    meeting["event_summary"] = sanitize(meeting["event_summary"]).lower().strip()
+
+for email in engagements["email_sent"]:
+    email["project"], email["tag"], email["customer_alias"] = map_domain_csv(email["recipient_domains"])
+    email["subject"] = sanitize(email["subject"]).lower().strip()
 
 
 ######
@@ -230,34 +240,35 @@ def tag_activities():
 
 def log_meetings(silent=False):
     # TODO in GAS, exclude meetings everybody but yourself have declined (optional?)
-    for index, row in meetings[~meetings.project.isna()].iterrows():
-        from_timestamp, to_timestamp = effective_meeting_times(row['start_timestamp'], row['end_timestamp'])
-        if from_timestamp and to_timestamp and row['project'] and row['tag']:
-            r = log_activity(from_timestamp, to_timestamp, "MEETING " + row['event_summary'], row['project'], [row['tag'], common_tags["meeting"]], True)
-            if r:
-                if not silent:
-                    print("Logged meeting (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
-                logged_intervals.append([from_timestamp, to_timestamp])
-                # TODO log adjacent pre_call and post_call activities
+    for row in engagements["customer_meetings"]:
+        if row["project"] and row["project"] != "":
+            from_timestamp, to_timestamp = effective_meeting_times(row['start_timestamp'], row['end_timestamp'])
+            if from_timestamp and to_timestamp and row['project'] and row['tag']:
+                r = log_activity(from_timestamp, to_timestamp, "MEETING " + row['event_summary'], row['project'], [row['tag'], common_tags["meeting"]], True)
+                if r:
+                    if not silent:
+                        print("Logged meeting (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
+                    logged_intervals.append([from_timestamp, to_timestamp])
+                    # TODO log adjacent pre_call and post_call activities
+                else:
+                    print("FAILED to log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
             else:
-                print("FAILED to log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
-        else:
-            print("Cannot log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
+                print("Cannot log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
 
 def log_email(silent=False):
-    for index, row in email_sent[~email_sent.project.isna()].iterrows():
-        from_timestamp, to_timestamp = effective_email_times(row['send_timestamp'])
-        if from_timestamp and to_timestamp and row['project'] and row['tag']:
-            print("tried")
-            r = log_activity(from_timestamp, to_timestamp, "EMAIL " + row['subject'], row['project'], [row['tag'], common_tags["email"]], True)
-            if r:
-                if not silent:
-                    print("Logged email (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['subject'] + "\" to " + row['customer_alias'].upper() )
-                logged_intervals.append([from_timestamp, to_timestamp])
+    for row in engagements["email_sent"]:
+        if row["project"] and row["project"] != "":
+            from_timestamp, to_timestamp = effective_email_times(row['send_timestamp'])
+            if from_timestamp and to_timestamp and row['project'] and row['tag']:
+                r = log_activity(from_timestamp, to_timestamp, "EMAIL " + row['subject'], row['project'], [row['tag'], common_tags["email"]], True)
+                if r:
+                    if not silent:
+                        print("Logged email (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['subject'] + "\" to " + row['customer_alias'].upper() )
+                    logged_intervals.append([from_timestamp, to_timestamp])
+                else:
+                    print("FAILED to log email \"" + row['subject'] + "\" to " + row['customer_alias'].upper() )
             else:
-                print("FAILED to log email \"" + row['subject'] + "\" to " + row['customer_alias'].upper() )
-        else:
-            print("Cannot log email \"" + row['subject'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
+                print("Cannot log email \"" + row['subject'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
 
 def fill_general_time(from_iso, until_iso, total_hours_max = 8):
     # TODO white noise function
