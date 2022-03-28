@@ -4,21 +4,18 @@
 
 import requests
 from datetime import datetime, timezone
-import pandas as pd
 import re
-from dotenv import dotenv_values
 
 from hubspot import HubSpot
+from hubspot.crm.contacts import ApiException
 
 ######
 # Configuration
 ######
 
-env_config = dotenv_values(".env")
-api_key = env_config["CLOCKIFYAPI"]
-hs_token = env_config["HUBSPOTTOKEN"]
-
-sheet_id = env_config["SHEETID"]
+api_key = "Mzk3MTE2Y2EtODA0Yy00MDJiLThiODgtNzBjZDIwMWNjN2Ez"
+sheet_id = "1PbmgdPUSbiudTL82MKw-02jSTmfvjZJNOqx5DJTI3hU"
+hs_token = "pat-na1-01d5e58a-3cf8-4d82-b4eb-c962ee0bce93"
 
 headers = {'x-api-key': api_key}
 sheet_base_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet="
@@ -50,9 +47,6 @@ common_tags = {
     "lunch": "6172fd1ad19f7568cf2209cd"
 }
 
-
-
-
 ######
 # Utility functions
 ######
@@ -62,7 +56,14 @@ def isostr_to_ms(iso_str):
         return int(datetime.now().timestamp() * 1000)
     else:
         assert iso_str[-1] == "Z"
-        return int(1000 * datetime.fromisoformat(iso_str[:-1] + "+00:00").timestamp())
+        # use fromisoformat with Python 3.7+
+        # assert datetime.strptime(iso_str[:-1] + "+00:00", "%Y-%m-%dT%H:%M:%S%z") == datetime.fromisoformat(iso_str[:-1] + "+00:00")
+        # return int(1000 * datetime.fromisoformat(iso_str[:-1] + "+00:00").timestamp())
+        
+        # crazy workaround for Python 3.6, see https://stackoverflow.com/questions/30999230/how-to-parse-timezone-with-colon
+        modified_iso_str = iso_str[:-1] + "+0000"
+        return int(1000 * datetime.strptime(modified_iso_str, "%Y-%m-%dT%H:%M:%S%z").timestamp())
+        
 
 def get_intervals(minus_x_hours = 48):
     lower_bound = int((datetime.now().timestamp() - minus_x_hours * 60 * 60 ) * 1000)
@@ -185,10 +186,14 @@ def effective_email_times(send_timestamp):
 # Read customer data from HubDB
 ######
 
-api_client = HubSpot()
-api_client.access_token = hs_token
+hubspot = HubSpot()
 
-rows = api_client.cms.hubdb.rows_api.get_table_rows(table_id_or_name='hsps_clockify_gsuite', sort=['result'], limit=50)
+hubspot.access_token = hs_token
+
+try:
+    rows = hubspot.cms.hubdb.rows_api.get_table_rows(table_id_or_name='hsps_clockify_gsuite', sort=['result'], limit=50)
+except ApiException as e:
+    raise
 
 domain_dict = {}
 customer_dict = {}
@@ -204,7 +209,7 @@ for row in rows.results:
 # data loading
 ######
 
-logged_intervals = get_intervals(360)
+logged_intervals = get_intervals(36)
 
 engagement_schemata = {
     "customer_meetings": ["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
@@ -300,10 +305,16 @@ def disjointify_activities(from_iso, until_iso, high_prio_proj = [], low_prio_pr
 # main
 ######
 
-if __name__ == "__main__":
+def main(event):
     # tag_activities()
     log_meetings(silent=False, prep_time_max=10, post_time_max=5)
-    #log_meetings()
     log_email()
     # fill_general_time (whatever params)
     print("END")
+    return {
+        "outputFields": {
+        }
+    }
+
+if __name__ == "__main__":
+    main(None)
