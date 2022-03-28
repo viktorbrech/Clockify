@@ -35,12 +35,16 @@ max_email_minutes = 15 # minutes
 min_email_minutes = 5 # minutes
 max_email_overlap = 3 # minutes, should be smaller than min_email_minutes
 
+common_projects = {
+    "general_time": "abc"
+}
+
 common_tags = {
     "meeting": "6172fd18d19f7568cf220734",
     "email": "6172fd18d19f7568cf2207ba",
     "investigate": "6172fd18d19f7568cf2207de",
     "post_call": "6172fd18d19f7568cf220758",
-    "pre_call": "6172fd18d19f7568cf2207ef",
+    "prep_call": "6172fd18d19f7568cf2207ef",
     "day_prep": "6172fd18d19f7568cf220817",
     "weekly_catchup": "6172fd1dd19f7568cf220c38",
     "lunch": "6172fd1ad19f7568cf2209cd"
@@ -200,7 +204,7 @@ for row in rows.results:
 # data loading
 ######
 
-logged_intervals = get_intervals(120)
+logged_intervals = get_intervals(360)
 
 engagement_schemata = {
     "customer_meetings": ["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"],
@@ -219,7 +223,6 @@ for sheet in engagement_schemata:
         for i in range(len(engagement_schemata[sheet])):
             row_dict[engagement_schemata[sheet][i]] = row[i]
         engagements[sheet].append(row_dict)
-
 for meeting in engagements["customer_meetings"]:
     meeting["project"], meeting["tag"], meeting["customer_alias"] = map_domain_csv(meeting["recipient_domains"])
     meeting["event_summary"] = sanitize(meeting["event_summary"]).lower().strip()
@@ -238,24 +241,36 @@ def tag_activities():
     # TODO find a way to log internal meetings, too
     pass
 
-def log_meetings(silent=False):
+def log_meetings(silent=False, prep_time_max=0, post_time_max=0):
     # TODO in GAS, exclude meetings everybody but yourself have declined (optional?)
     for row in engagements["customer_meetings"]:
         if row["project"] and row["project"] != "":
             from_timestamp, to_timestamp = effective_meeting_times(row['start_timestamp'], row['end_timestamp'])
             if from_timestamp and to_timestamp and row['project'] and row['tag']:
-                r = log_activity(from_timestamp, to_timestamp, "MEETING " + row['event_summary'], row['project'], [row['tag'], common_tags["meeting"]], True)
+                r = log_activity(from_timestamp, to_timestamp, "CALL " + row['event_summary'], row['project'], [row['tag'], common_tags["meeting"]], True)
                 if r:
                     if not silent:
-                        print("Logged meeting (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
+                        print("Logged call (" + str(round((to_timestamp - from_timestamp)/(1000 * 60)))+ "min) " + "\"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
                     logged_intervals.append([from_timestamp, to_timestamp])
-                    # TODO log adjacent pre_call and post_call activities
+                    # prep_call_time
+                    prep_from, prep_to = effective_meeting_times(from_timestamp - prep_time_max * 1000 * 60, from_timestamp)
+                    if prep_to == from_timestamp and (prep_to - prep_from) / (1000 * 60) > prep_time_max / 2:
+                        r = log_activity(prep_from, prep_to, "call_PREP " + row['event_summary'], row['project'], [row['tag'], common_tags["prep_call"]], True)
+                        if not r:
+                            print("failed to log call_prep for " + row['customer_alias'].upper() )
+                    # post_call_time
+                    post_from, post_to = effective_meeting_times(to_timestamp, to_timestamp + post_time_max * 1000 * 60)
+                    if post_from == to_timestamp  and (post_to - post_from) / (1000 * 60) > post_time_max / 2:
+                        r = log_activity(post_from, post_to, "call_POST " + row['event_summary'], row['project'], [row['tag'], common_tags["post_call"]], True)
+                        if not r:
+                            print("failed to log post_call for " + row['customer_alias'].upper() )
                 else:
-                    print("FAILED to log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
+                    print("FAILED to log call \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
             else:
-                print("Cannot log meeting \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
+                print("Cannot log call \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() + " (coincides with logged activity)")
 
 def log_email(silent=False):
+    # TODO truncate subject line when logging activity
     for row in engagements["email_sent"]:
         if row["project"] and row["project"] != "":
             from_timestamp, to_timestamp = effective_email_times(row['send_timestamp'])
@@ -272,6 +287,13 @@ def log_email(silent=False):
 
 def fill_general_time(from_iso, until_iso, total_hours_max = 8):
     # TODO white noise function
+    # could just book one big block and then call disjointify_activities
+    pass
+
+def disjointify_activities(from_iso, until_iso, high_prio_proj = [], low_prio_proj = [common_projects["general_time"]]):
+    # TODO write disjointify_activities
+    # priority rule is : (not in low > low), and (high > not in high)
+    # need to enforce minimum block length
     pass
 
 ######
@@ -280,7 +302,8 @@ def fill_general_time(from_iso, until_iso, total_hours_max = 8):
 
 if __name__ == "__main__":
     # tag_activities()
-    log_meetings()
+    log_meetings(silent=False, prep_time_max=10, post_time_max=5)
+    #log_meetings()
     log_email()
     # fill_general_time (whatever params)
     print("END")

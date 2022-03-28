@@ -190,7 +190,6 @@ customer_project_tag = pd.read_csv("input_files/customer_project_tag.csv",
 
 customer_data = pd.merge(customer_domains, customer_project_tag, on="customer_alias", how="left")
 customer_data = pd.merge(customer_data, tag_alias, on="tag_alias", how="left").set_index("domain").drop(columns=["tag_alias"])
-#customer_data.to_csv("combined_customer_data.csv")
 
 ######
 # data loading
@@ -269,7 +268,8 @@ def fill_general_time(from_iso, until_iso, total_hours_max = 8):
 
 if __name__ == "__main__":
     # tag_activities()
-    log_meetings()
-    log_email()
+    #log_meetings()
+    #log_email()
     # fill_general_time (whatever params)
+    customer_data.to_csv("combined_customer_data.csv")
     print("END")
