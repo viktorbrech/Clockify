@@ -13,9 +13,9 @@ from hubspot.crm.contacts import ApiException
 # Configuration
 ######
 
-api_key = "Mzk3MTE2Y2EtODA0Yy00MDJiLThiODgtNzBjZDIwMWNjN2Ez"
+api_key = "OLD_Mzk3MTE2Y2EtODA0Yy00MDJiLThiODgtNzBjZDIwMWNjN2Ez"
 sheet_id = "1PbmgdPUSbiudTL82MKw-02jSTmfvjZJNOqx5DJTI3hU"
-hs_token = "pat-na1-01d5e58a-3cf8-4d82-b4eb-c962ee0bce93"
+hs_token = "HUBDB_ONLY_pat-na1-01d5e58a-3cf8-4d82-b4eb-c962ee0bce93"
 
 headers = {'x-api-key': api_key}
 sheet_base_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet="
@@ -128,7 +128,6 @@ def log_activity(from_timestamp, to_timestamp, description, project_str, tag_lis
     }
     r = requests.post("https://hubspot.clockify.me/api/v1/workspaces/" + workspace + "/time-entries", headers=headers, json = data)
     if r:
-        print("ok")
         return True
     else:
         print("request failure")
@@ -262,13 +261,15 @@ def log_meetings(silent=False, prep_time_max=0, post_time_max=0):
                     if prep_to == from_timestamp and (prep_to - prep_from) / (1000 * 60) > prep_time_max / 2:
                         r = log_activity(prep_from, prep_to, "call_PREP " + row['event_summary'], row['project'], [row['tag'], common_tags["prep_call"]], True)
                         if not r:
-                            print("failed to log call_prep for " + row['customer_alias'].upper() )
+                            pass
+                            #print("failed to log call_prep for " + row['customer_alias'].upper() )
                     # post_call_time
                     post_from, post_to = effective_meeting_times(to_timestamp, to_timestamp + post_time_max * 1000 * 60)
                     if post_from == to_timestamp  and (post_to - post_from) / (1000 * 60) > post_time_max / 2:
                         r = log_activity(post_from, post_to, "call_POST " + row['event_summary'], row['project'], [row['tag'], common_tags["post_call"]], True)
                         if not r:
-                            print("failed to log post_call for " + row['customer_alias'].upper() )
+                            pass
+                            #print("failed to log post_call for " + row['customer_alias'].upper() )
                 else:
                     print("FAILED to log call \"" + row['event_summary'] + "\" to " + row['customer_alias'].upper() )
             else:
@@ -310,7 +311,6 @@ def main(event):
     log_meetings(silent=False, prep_time_max=10, post_time_max=5)
     log_email()
     # fill_general_time (whatever params)
-    print("END")
     return {
         "outputFields": {
         }
