@@ -10,12 +10,27 @@ function onOpen() {
     //{name: 'Validate content (placeholder)', functionName: 'validateSheet_'},
     {name: 'Refresh email and calendar data', functionName: 'refreshSheet_'}
   ];
-  spreadsheet.addMenu('Viktor_Clockify', menuItems);
+  spreadsheet.addMenu('Clockifyiable_Activities', menuItems);
 }
 
 function refreshSheet_() {
   getRecentSentEmail();
   getRecentMeetings();
+}
+
+
+let config_map = {}
+
+function getConfig() {
+  let ss = SpreadsheetApp.getActiveSpreadsheet();
+  let sheet = ss.getSheetByName("config");
+  // This represents ALL the data
+  var range = sheet.getDataRange();
+  var values = range.getValues();
+  // This logs the spreadsheet in CSV format with a trailing comma
+  for (var i = 0; i < values.length; i++) {
+    config_map[values[i][0]] = values[i][1];
+  }
 }
 
 // via https://www.weirdgeek.com/2019/10/regular-expression-in-google-apps-script/ and https://stackoverflow.com/questions/42407785/regex-extract-email-from-strings
@@ -28,17 +43,18 @@ function getRecipientEmails(string) {
 
 // https://developers.google.com/apps-script/reference/gmail
 function getRecentSentEmail() {
+  getConfig();
   let ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName("email_sent");
   sheet.clear();
   sheet.appendRow(["send_timestamp", "subject", "recipient_domains"]);
-  let threads = GmailApp.search("in:sent", 0, 50);
+  let threads = GmailApp.search("in:sent", 0, 100);
   for (var i = 0; i < threads.length; i++) {
     let messages = threads[i].getMessages();
     for (var j = messages.length - 1; j >= 0 ; j--) {
-      if (messages[j].getFrom() == "Viktor Brech <vbrech@hubspot.com>") {
+      if (messages[j].getFrom().includes(config_map["sender_email"])) {
         let message_date = messages[j].getDate();
-        if ((Date.now() - message_date)/(1000*60*60) < 96) {
+        if ((Date.now() - message_date)/(1000*60*60) < config_map["hours"]) {
           let message_subject = messages[j].getSubject()
           if (message_subject && !message_subject.includes("out of office") && !message_subject.includes("slow to respond")) {
             let message_recipients = messages[j].getTo();
@@ -55,7 +71,7 @@ function getRecentSentEmail() {
               }
             }
             if (recipient_domains.length > 0) {
-              sheet.appendRow([message_date.getTime(), message_subject, recipient_domains.join(",")]);
+              sheet.appendRow([message_date.getTime(), message_subject, recipient_domains.join(";")]);
             }
           }
         }
@@ -68,19 +84,20 @@ function getRecentSentEmail() {
 // https://developers.google.com/calendar/api/v3/reference/events 
 // unfortunately couldn't use https://developers.google.com/apps-script/reference/calendar/calendar-app since it doesn't return "decline" status for an event owner
 function getRecentMeetings() {
+  getConfig();
   let ss = SpreadsheetApp.getActiveSpreadsheet();
   let sheet = ss.getSheetByName("customer_meetings");
   sheet.clear();
   sheet.appendRow(["start_timestamp", "end_timestamp", "event_summary", "recipient_domains"]);
   let calendarId = 'primary';
   let now = new Date();
-  let now_minus_one_day = new Date(now.getTime() - (96 * 60 * 60 * 1000));
+  let now_minus_one_day = new Date(now.getTime() - (config_map["hours"] * 60 * 60 * 1000));
   let events = Calendar.Events.list(calendarId, {
     timeMin: now_minus_one_day.toISOString(),
     timeMax: now.toISOString(),
     singleEvents: true,
     orderBy: 'startTime',
-    maxResults: 20
+    maxResults: 100
   });
   if (events.items && events.items.length > 0) {
     for (var i = 0; i < events.items.length; i++) {
@@ -110,7 +127,7 @@ function getRecentMeetings() {
         if (log_event) {
           let event_start = Date.parse(event.start.dateTime);
           let event_end = Date.parse(event.end.dateTime);
-          sheet.appendRow([event_start, event_end, event.summary, event_domains.join(",")]);
+          sheet.appendRow([event_start, event_end, event.summary, event_domains.join(";")]);
         }
       }
     }
